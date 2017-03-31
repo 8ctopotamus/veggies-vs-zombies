@@ -8,6 +8,7 @@ Veggies.GameState = {
     this.HOUSE_X = 60
     this.SUN_FREQUENCY = 5
     this.SUN_VELOCITY = 50
+    this.ZOMBIE_Y_POSITONS = [49, 99, 149, 199, 249]
 
     //no gravity in a top-down game
     this.game.physics.arcade.gravity.y = 0
@@ -24,33 +25,35 @@ Veggies.GameState = {
     this.zombies = this.add.group()
     this.suns = this.add.group()
 
-    this.numSuns = 100
+    this.numSuns = 800
 
     // create user interface
     this.createGui()
 
-    var zombieData = {
-        asset: 'zombie',
-        health: 10,
-        animationFrames: [0, 1, 2, 1],
-        attack: 0.1,
-        velocity: -40
-    }
+    // test zombie
+    // var zombieData = {
+    //     asset: 'zombie',
+    //     health: 10,
+    //     animationFrames: [0, 1, 2, 1],
+    //     attack: 0.1,
+    //     velocity: -40
+    // }
 
-    var plantData = {
-      plantAsset: 'plant',
-      health: 10,
-      isShooter: true,
-      // isSunProducer: true,
-      animationFrames: [1, 2, 1, 0]
-    }
+    // test plant
+    // var plantData = {
+    //   plantAsset: 'plant',
+    //   health: 10,
+    //   isShooter: true,
+    //   // isSunProducer: true,
+    //   animationFrames: [1, 2, 1, 0]
+    // }
 
-    this.plant = new Veggies.Plant(this, 100,100, plantData)
-    this.plants.add(this.plant)
+    // this.plant = new Veggies.Plant(this, 100,100, plantData)
+    // this.plants.add(this.plant)
 
-    //test zombie
-    this.zombie = new Veggies.Zombie(this, 400, 100, zombieData)
-    this.zombies.add(this.zombie)
+    // //test zombie
+    // this.zombie = new Veggies.Zombie(this, 400, 100, zombieData)
+    // this.zombies.add(this.zombie)
 
     // test bullet
     //this.bullet = new Veggies.Bullet(this, 100, 200)
@@ -62,6 +65,8 @@ Veggies.GameState = {
     this.scheduleSunGeneration()
 
     this.hitSound = this.add.audio('hit')
+
+    this.loadLevel()
   },
   update: function() {
     this.game.physics.arcade.collide(this.plants, this.zombies, this.attackPlant, null, this)
@@ -86,7 +91,7 @@ Veggies.GameState = {
     var newElement = this.zombies.getFirstDead()
 
     if(!newElement) {
-      newElement = new Veggies.Zombie(this, 300, 100, data)
+      newElement = new Veggies.Zombie(this, x, y, data)
       this.zombies.add(newElement)
     } else {
       newElement.reset(x, y, data)
@@ -94,14 +99,14 @@ Veggies.GameState = {
 
     return newElement
   },
-  createPlant: function(x, y, data) {
+  createPlant: function(x, y, data, patch) {
     var newElement = this.plants.getFirstDead()
 
-    if(!newElement) {
-      newElement = new Veggies.Plant(this, 300, 100, data)
+    if (!newElement) {
+      newElement = new Veggies.Plant(this, x, y, data, patch)
       this.plants.add(newElement)
     } else {
-      newElement.reset(x, y, data)
+      newElement.reset(x, y, data, patch)
     }
 
     return newElement
@@ -172,6 +177,18 @@ Veggies.GameState = {
     bullet.kill()
     this.hitSound.play()
     zombie.damage(5)
+
+    // if zom was killed, increase counter
+    if (zombie.alive) {
+      this.killedEnemies++
+
+      console.log('Killed ' + this.killedEnemies + '/' + this.numEnemies + ' zoms')
+
+      // next level when they are all dead
+      if (this.killedEnemies == this.numEnemies) {
+        this.game.state.start('Game', true, false, this.levelData.nextLevel)
+      }
+    }
   },
   clickButton: function(button) {
     if( !button.selected ) {
@@ -214,9 +231,14 @@ Veggies.GameState = {
     var dark = false
 
     for (var i = 0; i < 10; i++) {
-      for (j=0; j < 5; j++) {
+      for (j = 0; j < 5; j++) {
         //create patch
-        patch = new Phaser.Sprite(this.game, 64 + i * 40, 24 + j * 50, rectangle)
+        patch = new Phaser.Sprite(
+          this.game,
+          64 + i * 40,
+          24 + j * 50,
+          rectangle
+        )
         this.patches.add(patch)
 
         // alternate transparency so looks like chess board
@@ -231,6 +253,48 @@ Veggies.GameState = {
     }
   },
   plantPlant: function(patch) {
-    console.log('check if we can plant')
+    if (!patch.isBusy && this.currentSelection) {
+      patch.isBusy = true
+
+
+
+      //create a new plant
+      var plant = this.createPlant(patch.x + patch.width/2, patch.y + patch.height/2, this.currentSelection, patch)
+
+      // subtract cost
+      this.increaseSun(-this.currentSelection.cost)
+    }
+  },
+  loadLevel: function() {
+    // parse loaded JSON file
+    this.levelData = JSON.parse(this.game.cache.getText(this.currentLevel))
+
+    // keep track of what enemy needs to be shown next
+    this.currentEnemyIndex = 0
+
+    // keep track of number of enemies in level and how many you have killed
+    this.killedEnemies = 0
+    this.numEnemies = this.levelData.zombies.length
+
+    console.log('loaded ' + this.levelData.zombies.length + ' zombies')
+
+    this.scheduleNextEnemy()
+  },
+  scheduleNextEnemy: function() {
+    var nextEnemy = this.levelData.zombies[this.currentEnemyIndex]
+
+    if (nextEnemy) {
+      var nextTime = 1000 * (nextEnemy.time - (this.currentEnemyIndex == 0 ? 0 : this.levelData.zombies[this.currentEnemyIndex - 1].time))
+
+      this.nextEnemyTimer = this.game.time.events.add(nextTime, function() {
+        // random y position
+        var y = this.ZOMBIE_Y_POSITONS[Math.floor(Math.random() * this.ZOMBIE_Y_POSITONS.length)]
+
+        this.createZombie(this.game.world.width + 40, y, nextEnemy)
+
+        this.currentEnemyIndex++
+        this.scheduleNextEnemy()
+      }, this)
+    }
   }
 }
